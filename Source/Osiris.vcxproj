@@ -390,7 +390,11 @@
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
+<<<<<<< Updated upstream
     <CharacterSet>Unicode</CharacterSet>
+=======
+    <CharacterSet>MultiByte</CharacterSet>
+>>>>>>> Stashed changes
     <SpectreMitigation>false</SpectreMitigation>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
