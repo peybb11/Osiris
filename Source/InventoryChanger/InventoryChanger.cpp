@@ -75,10 +75,10 @@
 
 #include <SortFilter.h>
 
-static std::uintptr_t createGlove(const ClientInterfaces& clientInterfaces, int entry, int serial) noexcept
+static csgo::pod::Entity* createGlove(const ClientInterfaces& clientInterfaces, int entry, int serial) noexcept
 {
     static const auto createWearable = [&clientInterfaces]{
-        std::add_pointer_t<std::uintptr_t CDECL_CONV(int, int)> createWearableFn = nullptr;
+        std::add_pointer_t<csgo::pod::Entity* CDECL_CONV(int, int)> createWearableFn = nullptr;
         for (auto clientClass = clientInterfaces.getClient().getAllClasses(); clientClass; clientClass = clientClass->next) {
             if (clientClass->classId == ClassId::EconWearable) {
                 createWearableFn = clientClass->createFunction;
@@ -89,11 +89,11 @@ static std::uintptr_t createGlove(const ClientInterfaces& clientInterfaces, int 
     }();
 
     if (!createWearable)
-        return 0;
+        return nullptr;
 
     if (const auto wearable = createWearable(entry, serial))
-        return std::uintptr_t(wearable) - 2 * sizeof(std::uintptr_t);
-    return 0;
+        return reinterpret_cast<csgo::pod::Entity*>(std::uintptr_t(wearable) - 2 * sizeof(std::uintptr_t));
+    return nullptr;
 }
 
 static std::optional<std::list<inventory_changer::inventory::Item>::const_iterator> getItemFromLoadout(const inventory_changer::backend::Loadout& loadout, csgo::Team team, std::uint8_t slot)
@@ -131,7 +131,7 @@ static void applyGloves(const EngineInterfaces& engineInterfaces, const ClientIn
     if (!glovePtr)
         return;
 
-    const Entity glove{ retSpoofGadgets.client, glovePtr };
+    const auto glove = Entity::from(retSpoofGadgets.client, glovePtr);
     wearables[0] = gloveHandle = glove.handle();
     glove.accountID() = localInventory.getAccountID();
     glove.entityQuality() = 3;
@@ -154,7 +154,7 @@ static void applyGloves(const EngineInterfaces& engineInterfaces, const ClientIn
     }
 
     glove.initialized() = true;
-    memory.equipWearable(glove.getThis(), local.getThis());
+    memory.equipWearable(glove.getPOD(), local.getPOD());
 
     if (dataUpdated) {
         // FIXME: This leaks game memory
@@ -184,8 +184,8 @@ static void applyKnife(const EngineInterfaces& engineInterfaces, const ClientInt
         if (weaponHandle == -1)
             break;
 
-        const Entity weapon{ retSpoofGadgets.client, clientInterfaces.getEntityList().getEntityFromHandle(weaponHandle) };
-        if (weapon.getThis() == 0)
+        const auto weapon = Entity::from(retSpoofGadgets.client, clientInterfaces.getEntityList().getEntityFromHandle(weaponHandle));
+        if (weapon.getPOD() == nullptr)
             continue;
 
         auto& definitionIndex = weapon.itemDefinitionIndex();
@@ -210,12 +210,12 @@ static void applyKnife(const EngineInterfaces& engineInterfaces, const ClientInt
         }
     }
 
-    const Entity viewModel{ retSpoofGadgets.client, clientInterfaces.getEntityList().getEntityFromHandle(local.viewModel()) };
-    if (viewModel.getThis() == 0)
+    const auto viewModel = Entity::from(retSpoofGadgets.client, clientInterfaces.getEntityList().getEntityFromHandle(local.viewModel()));
+    if (viewModel.getPOD() == nullptr)
         return;
 
-    const Entity viewModelWeapon{ retSpoofGadgets.client, clientInterfaces.getEntityList().getEntityFromHandle(viewModel.weapon()) };
-    if (viewModelWeapon.getThis() == 0)
+    const auto viewModelWeapon = Entity::from(retSpoofGadgets.client, clientInterfaces.getEntityList().getEntityFromHandle(viewModel.weapon()));
+    if (viewModelWeapon.getPOD() == nullptr)
         return;
 
     const auto def = ItemSchema::from(retSpoofGadgets.client, memory.itemSystem().getItemSchema()).getItemDefinitionInterface(viewModelWeapon.itemDefinitionIndex());
@@ -224,8 +224,8 @@ static void applyKnife(const EngineInterfaces& engineInterfaces, const ClientInt
 
     viewModel.modelIndex() = engineInterfaces.getModelInfo().getModelIndex(EconItemDefinition::from(retSpoofGadgets.client, def).getPlayerDisplayModel());
 
-    const Entity worldModel{ retSpoofGadgets.client, clientInterfaces.getEntityList().getEntityFromHandle(viewModelWeapon.weaponWorldModel()) };
-    if (worldModel.getThis() == 0)
+    const auto worldModel = Entity::from(retSpoofGadgets.client, clientInterfaces.getEntityList().getEntityFromHandle(viewModelWeapon.weaponWorldModel()));
+    if (worldModel.getPOD() == nullptr)
         return;
 
     worldModel.modelIndex() = engineInterfaces.getModelInfo().getModelIndex(EconItemDefinition::from(retSpoofGadgets.client, def).getWorldDisplayModel());
@@ -239,8 +239,8 @@ static void applyWeapons(const Engine& engine, const ClientInterfaces& clientInt
 
     const auto highestEntityIndex = clientInterfaces.getEntityList().getHighestEntityIndex();
     for (int i = memory.globalVars->maxClients + 1; i <= highestEntityIndex; ++i) {
-        const Entity entity{ retSpoofGadgets.client, clientInterfaces.getEntityList().getEntity(i) };
-        if (entity.getThis() == 0 || !entity.isWeapon())
+        const auto entity = Entity::from(retSpoofGadgets.client, clientInterfaces.getEntityList().getEntity(i));
+        if (entity.getPOD() == nullptr || !entity.isWeapon())
             continue;
 
         const auto weapon = entity;
@@ -276,12 +276,12 @@ static void applyWeapons(const Engine& engine, const ClientInterfaces& clientInt
 
 static void onPostDataUpdateStart(const EngineInterfaces& engineInterfaces, const ClientInterfaces& clientInterfaces, const Interfaces& interfaces, const Memory& memory, int localHandle) noexcept
 {
-    const Entity local{ retSpoofGadgets.client, clientInterfaces.getEntityList().getEntityFromHandle(localHandle) };
-    if (local.getThis() == 0)
+    const auto local = Entity::from(retSpoofGadgets.client, clientInterfaces.getEntityList().getEntityFromHandle(localHandle));
+    if (local.getPOD() == nullptr)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     applyKnife(engineInterfaces, clientInterfaces, interfaces, memory, inventory_changer::InventoryChanger::instance(interfaces, memory).getBackend(), localInventory, local);
@@ -350,7 +350,7 @@ static void applyPlayerAgent(const ModelInfo& modelInfo, const ClientInterfaces&
     const auto idx = modelInfo.getModelIndex(model);
     localPlayer.get().setModelIndex(idx);
 
-    if (const Entity ragdoll{ retSpoofGadgets.client, clientInterfaces.getEntityList().getEntityFromHandle(localPlayer.get().ragdoll())}; ragdoll.getThis() != 0)
+    if (const auto ragdoll = Entity::from(retSpoofGadgets.client, clientInterfaces.getEntityList().getEntityFromHandle(localPlayer.get().ragdoll())); ragdoll.getPOD() != nullptr)
         ragdoll.setModelIndex(idx);
 }
 
@@ -384,8 +384,8 @@ static std::vector<EquipRequest> equipRequests;
 
 static void simulateItemUpdate(const Memory& memory, std::uint64_t itemID)
 {
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     if (const auto view = memory.findOrCreateEconItemViewForItemID(itemID)) {
@@ -1045,7 +1045,7 @@ namespace inventory_changer
 void InventoryChanger::onSoUpdated(const SharedObject& object) noexcept
 {
     if (object.getTypeID() == 43 /* = k_EEconTypeDefaultEquippedDefinitionInstanceClient */) {
-        WeaponId& weaponID = *reinterpret_cast<WeaponId*>(object.getThis() + WIN32_LINUX(0x10, 0x1C));
+        WeaponId& weaponID = *reinterpret_cast<WeaponId*>(std::uintptr_t(object.getPOD()) + WIN32_LINUX(0x10, 0x1C));
         if (const auto it = std::ranges::find(equipRequests, weaponID, &EquipRequest::weaponID); it != equipRequests.end()) {
             ++it->counter;
             weaponID = WeaponId::None;
@@ -1069,8 +1069,8 @@ void InventoryChanger::run(const EngineInterfaces& engineInterfaces, const Clien
     if (stage != csgo::FrameStage::RENDER_START)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     if (localPlayer)
@@ -1142,8 +1142,8 @@ void InventoryChanger::updateStatTrak(const Engine& engine, const GameEvent& eve
     if (const auto localUserId = localPlayer.get().getUserId(engine); event.getInt("attacker") != localUserId || event.getInt("userid") == localUserId)
         return;
 
-    const Entity weapon{ retSpoofGadgets.client, localPlayer.get().getActiveWeapon() };
-    if (weapon.getThis() == 0)
+    const auto weapon = Entity::from(retSpoofGadgets.client, localPlayer.get().getActiveWeapon());
+    if (weapon.getPOD() == nullptr)
         return;
 
     const auto optionalItem = backend.itemFromID(ItemId{ weapon.itemID() });
@@ -1386,14 +1386,16 @@ void InventoryChanger::acknowledgeItem(const Memory& memory, std::uint64_t itemI
     if (!backend.itemFromID(ItemId{ itemID }).has_value())
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     if (const auto view = memory.findOrCreateEconItemViewForItemID(itemID)) {
         if (const auto soc = memory.getSOCData(view)) {
-            soc->inventory = localInventory.getHighestIDs(memory).second + 1;
-            localInventory.soUpdated(localInventory.getSOID(), (csgo::pod::SharedObject*)soc, 4);
+            if (const auto baseTypeCache = getItemBaseTypeCache(localInventory, memory.createBaseTypeCache)) {
+                soc->inventory = baseTypeCache->getHighestIDs().second + 1;
+                localInventory.soUpdated(localInventory.getSOID(), (csgo::pod::SharedObject*)soc, 4);
+            }
         }
     }
 }

@@ -33,7 +33,7 @@ void initItemCustomizationNotification(const Interfaces& interfaces, const Memor
     using namespace std::string_view_literals;
     std::string args{ "0,'" }; args += typeStr; args += "','"sv; args += std::to_string(static_cast<csgo::ItemId>(itemID)); args += '\'';
     const char* dummy;
-    if (const auto event = memory.registeredPanoramaEvents->memory[idx].value.createEventFromString(nullptr, args.c_str(), &dummy))
+    if (const auto event = retSpoofGadgets.client.invokeCdecl<void*>(std::uintptr_t(memory.registeredPanoramaEvents->memory[idx].value.createEventFromString), nullptr, args.c_str(), &dummy))
         UIEngine{ retSpoofGadgets.client, interfaces.getPanoramaUIEngine().accessUIEngine() }.dispatchEvent(event);
 }
 
@@ -43,8 +43,8 @@ void updateNameTag(const Memory& memory, ItemId itemID, const char* newNameTag)
     if (!econItem)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     memory.setCustomName(econItem, newNameTag);
@@ -57,8 +57,8 @@ void updatePatch(const Memory& memory, ItemId itemID, int patchID, std::uint8_t 
     if (econItem.getThis() == 0)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     EconItemAttributeSetter attributeSetter{ ItemSchema::from(retSpoofGadgets.client, memory.itemSystem().getItemSchema()) };
@@ -72,8 +72,8 @@ void setItemHiddenFlag(const Memory& memory, ItemId itemID, bool hide)
     if (!econItem)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     using enum csgo::EconItemFlags;
@@ -154,20 +154,20 @@ void initSkinEconItem(const Memory& memory, const game_items::Storage& gameItemS
 
 ItemId Inventory::createSOCItem(const game_items::Storage& gameItemStorage, const inventory::Item& inventoryItem, bool asUnacknowledged)
 {
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return {};
 
-    const auto baseTypeCache = localInventory.getItemBaseTypeCache(memory);
+    const auto baseTypeCache = getItemBaseTypeCache(localInventory, memory.createBaseTypeCache);
     if (!baseTypeCache)
         return {};
 
     const auto econItemPOD = memory.createEconItemSharedObject();
     EconItem econItem{ retSpoofGadgets.client, econItemPOD, memory.setDynamicAttributeValueFn, memory.removeDynamicAttribute };
-    econItemPOD->itemID = localInventory.getHighestIDs(memory).first + 1;
+    econItemPOD->itemID = baseTypeCache->getHighestIDs().first + 1;
     econItemPOD->originalID = 0;
     econItemPOD->accountID = localInventory.getAccountID();
-    econItemPOD->inventory = asUnacknowledged ? 0 : localInventory.getHighestIDs(memory).second + 1;
+    econItemPOD->inventory = asUnacknowledged ? 0 : baseTypeCache->getHighestIDs().second + 1;
 
     const auto& item = inventoryItem.gameItem();
     econItemPOD->rarity = static_cast<std::uint16_t>(item.getRarity());
@@ -255,7 +255,7 @@ ItemId Inventory::createSOCItem(const game_items::Storage& gameItemStorage, cons
         memory.setItemSessionPropertyValue(inventoryComponent, econItemPOD->itemID, "updated", "0");
     }
 
-    if (const auto view = EconItemView::from(retSpoofGadgets.client, memory.findOrCreateEconItemViewForItemID(econItemPOD->itemID), std::uintptr_t(memory.clearInventoryImageRGBA)); view.getThis() != 0)
+    if (const auto view = EconItemView::from(retSpoofGadgets.client, memory.findOrCreateEconItemViewForItemID(econItemPOD->itemID), std::uintptr_t(memory.clearInventoryImageRGBA)); view.getPOD() != nullptr)
         view.clearInventoryImageRGBA();
 
     return ItemId{ econItemPOD->itemID };
@@ -267,16 +267,20 @@ ItemId Inventory::assingNewItemID(ItemId itemID)
     if (!econItem)
         return itemID;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
+        return itemID;
+
+    const auto baseTypeCache = getItemBaseTypeCache(localInventory, memory.createBaseTypeCache);
+    if (!baseTypeCache)
         return itemID;
 
     localInventory.soDestroyed(localInventory.getSOID(), (csgo::pod::SharedObject*)econItem, 4);
-    const auto newItemID = localInventory.getHighestIDs(memory).first + 1;
+    const auto newItemID = baseTypeCache->getHighestIDs().first + 1;
     econItem->itemID = newItemID;
     localInventory.soCreated(localInventory.getSOID(), (csgo::pod::SharedObject*)econItem, 4);
 
-    if (const auto view = EconItemView::from(retSpoofGadgets.client, memory.findOrCreateEconItemViewForItemID(newItemID), std::uintptr_t(memory.clearInventoryImageRGBA)); view.getThis() != 0)
+    if (const auto view = EconItemView::from(retSpoofGadgets.client, memory.findOrCreateEconItemViewForItemID(newItemID), std::uintptr_t(memory.clearInventoryImageRGBA)); view.getPOD() != nullptr)
         view.clearInventoryImageRGBA();
 
     if (const auto inventoryComponent = *memory.uiComponentInventory) {
@@ -293,8 +297,8 @@ void Inventory::applySticker(ItemId itemID, csgo::StickerId stickerID, std::uint
     if (econItem.getThis() == 0)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     EconItemAttributeSetter attributeSetter{ ItemSchema::from(retSpoofGadgets.client, memory.itemSystem().getItemSchema()) };
@@ -311,8 +315,8 @@ void Inventory::removeSticker(ItemId itemID, std::uint8_t slot)
     if (econItem.getThis() == 0)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     EconItemAttributeSetter attributeSetter{ ItemSchema::from(retSpoofGadgets.client, memory.itemSystem().getItemSchema()) };
@@ -328,8 +332,8 @@ void Inventory::updateStickerWear(ItemId itemID, std::uint8_t slot, float newWea
     if (econItem.getThis() == 0)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     EconItemAttributeSetter attributeSetter{ ItemSchema::from(retSpoofGadgets.client, memory.itemSystem().getItemSchema()) };
@@ -359,13 +363,13 @@ void Inventory::deleteItem(ItemId itemID)
     if (econItem.getThis() == 0)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     localInventory.soDestroyed(localInventory.getSOID(), (csgo::pod::SharedObject*)econItem.getPOD(), 4);
 
-    if (const auto baseTypeCache = localInventory.getItemBaseTypeCache(memory))
+    if (const auto baseTypeCache = getItemBaseTypeCache(localInventory, memory.createBaseTypeCache))
         SharedObjectTypeCache::from(retSpoofGadgets.client, baseTypeCache).removeObject((csgo::pod::SharedObject*)econItem.getPOD());
 
     econItem.destructor();
@@ -377,8 +381,8 @@ void Inventory::updateStatTrak(ItemId itemID, int newStatTrakValue)
     if (econItem.getThis() == 0)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     EconItemAttributeSetter attributeSetter{ ItemSchema::from(retSpoofGadgets.client, memory.itemSystem().getItemSchema()) };
@@ -409,8 +413,8 @@ void Inventory::souvenirTokenActivated(ItemId itemID, std::uint32_t dropsAwarded
     if (econItem.getThis() == 0)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     EconItemAttributeSetter attributeSetter{ ItemSchema::from(retSpoofGadgets.client, memory.itemSystem().getItemSchema()) };
@@ -425,8 +429,8 @@ void Inventory::unsealGraffiti(ItemId itemID)
     if (econItem.getThis() == 0 || econItem.getPOD()->weaponId != WeaponId::SealedGraffiti)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     EconItemAttributeSetter attributeSetter{ ItemSchema::from(retSpoofGadgets.client, memory.itemSystem().getItemSchema()) };
@@ -442,8 +446,8 @@ void Inventory::selectTeamGraffiti(ItemId itemID, std::uint16_t graffitiID)
     if (econItem.getThis() == 0)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     EconItemAttributeSetter attributeSetter{ ItemSchema::from(retSpoofGadgets.client, memory.itemSystem().getItemSchema()) };
@@ -473,7 +477,7 @@ void Inventory::pickEmUpdated()
 {
     if (const auto idx = memory.registeredPanoramaEvents->find(memory.makePanoramaSymbol("PanoramaComponent_MatchList_PredictionUploaded")); idx != -1) {
         const char* dummy;
-        if (const auto eventPtr = memory.registeredPanoramaEvents->memory[idx].value.createEventFromString(nullptr, "", &dummy))
+        if (const auto eventPtr = retSpoofGadgets.client.invokeCdecl<void*>(std::uintptr_t(memory.registeredPanoramaEvents->memory[idx].value.createEventFromString), nullptr, "", &dummy))
             UIEngine{ retSpoofGadgets.client, interfaces.getPanoramaUIEngine().accessUIEngine() }.dispatchEvent(eventPtr);
     }
 }
@@ -499,8 +503,8 @@ void Inventory::xRayItemClaimed(ItemId itemID)
     if (!econItem)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     econItem->flags &= ~16;
@@ -521,8 +525,8 @@ void Inventory::storageUnitModified(ItemId itemID, std::uint32_t modificationDat
     if (econItem.getThis() == 0)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     EconItemAttributeSetter attributeSetter{ ItemSchema::from(retSpoofGadgets.client, memory.itemSystem().getItemSchema()) };
@@ -538,8 +542,8 @@ void Inventory::addItemToStorageUnit(ItemId itemID, ItemId storageUnitItemID)
     if (econItem.getThis() == 0)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     EconItemAttributeSetter attributeSetter{ ItemSchema::from(retSpoofGadgets.client, memory.itemSystem().getItemSchema()) };
@@ -560,8 +564,8 @@ void Inventory::removeItemFromStorageUnit(ItemId itemID, ItemId storageUnitItemI
     if (econItem.getThis() == 0)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     EconItemAttributeSetter attributeSetter{ ItemSchema::from(retSpoofGadgets.client, memory.itemSystem().getItemSchema()) };
@@ -577,8 +581,8 @@ void Inventory::updateTradableAfterDate(ItemId itemID, std::uint32_t tradableAft
     if (econItem.getThis() == 0)
         return;
 
-    const CSPlayerInventory localInventory{ retSpoofGadgets.client, memory.inventoryManager.getLocalInventory() };
-    if (localInventory.getThis() == 0)
+    const auto localInventory = CSPlayerInventory::from(retSpoofGadgets.client, memory.inventoryManager.getLocalInventory());
+    if (localInventory.getPOD() == nullptr)
         return;
 
     EconItemAttributeSetter attributeSetter{ ItemSchema::from(retSpoofGadgets.client, memory.itemSystem().getItemSchema()) };

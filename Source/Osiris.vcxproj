@@ -271,6 +271,7 @@
     <ClInclude Include="Platform\PlatformSpecific.h" />
     <ClInclude Include="Platform\RetSpoofInvoker.h" />
     <ClInclude Include="Platform\Windows\DynamicLibrary.h" />
+    <ClInclude Include="Platform\Windows\DynamicLibrarySection.h" />
     <ClInclude Include="Platform\Windows\DynamicLibraryView.h" />
     <ClInclude Include="Platform\Windows\DynamicLibraryWrapper.h" />
     <ClInclude Include="Platform\Windows\RetSpoofInvoker.h" />
@@ -339,6 +340,7 @@
     <ClInclude Include="SDK\PODs\EconItem.h" />
     <ClInclude Include="SDK\PODs\ItemSchema.h" />
     <ClInclude Include="SDK\PODs\PaintKit.h" />
+    <ClInclude Include="SDK\PODs\SharedObjectTypeCache.h" />
     <ClInclude Include="SDK\Prediction.h" />
     <ClInclude Include="SDK\Recv.h" />
     <ClInclude Include="SDK\Sound.h" />
@@ -365,6 +367,7 @@
     <ClInclude Include="SortFilter.h" />
     <ClInclude Include="Texture.h" />
     <ClInclude Include="Utils\FlagsBuilder.h" />
+    <ClInclude Include="Utils\TypeHint.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Resources\Shaders\default_vs.hlsl">

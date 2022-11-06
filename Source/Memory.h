@@ -142,7 +142,7 @@ public:
     std::add_pointer_t<void CDECL_CONV(const char* msg, ...)> debugMsg;
     std::add_pointer_t<void CDECL_CONV(const std::array<std::uint8_t, 4>& color, const char* msg, ...)> conColorMsg;
     float* vignette;
-    int(THISCALL_CONV* equipWearable)(std::uintptr_t wearable, std::uintptr_t player);
+    int(THISCALL_CONV* equipWearable)(csgo::pod::Entity* wearable, csgo::pod::Entity* player);
     int* predictionRandomSeed;
     MoveData* moveData;
     std::uintptr_t keyValuesFromString;
@@ -160,7 +160,7 @@ public:
     std::uintptr_t demoOrHLTV;
     std::uintptr_t money;
     std::uintptr_t demoFileEndReached;
-    std::uintptr_t* gameRules;
+    csgo::pod::Entity** gameRules;
     InventoryManager inventoryManager;
     std::add_pointer_t<csgo::pod::EconItem* STDCALL_CONV()> createEconItemSharedObject;
     bool(THISCALL_CONV* addEconItem)(std::uintptr_t playerInventory, csgo::pod::EconItem* item, bool updateAckFile, bool writeAckFile, bool checkForNewItems);

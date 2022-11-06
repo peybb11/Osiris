@@ -12,6 +12,8 @@
 #if IS_WIN32()
 #include <Windows.h>
 #include <Psapi.h>
+
+#include <Platform/Windows/DynamicLibrarySection.h>
 #elif IS_LINUX()
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -19,6 +21,8 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include <Platform/Linux/DynamicLibrarySection.h>
 #endif
 
 #include "Interfaces.h"
@@ -31,50 +35,11 @@
 static std::span<const std::byte> getModuleInformation(const char* name) noexcept
 {
 #if IS_WIN32()
-    if (HMODULE handle = GetModuleHandleA(name)) {
-        if (MODULEINFO moduleInfo; GetModuleInformation(GetCurrentProcess(), handle, &moduleInfo, sizeof(moduleInfo)))
-            return { reinterpret_cast<const std::byte*>(moduleInfo.lpBaseOfDll), moduleInfo.SizeOfImage };
-    }
-    return {};
+    const windows_platform::DynamicLibrary dll{ windows_platform::DynamicLibraryWrapper{}, name };
+    return windows_platform::getCodeSection(dll.getView());
 #elif IS_LINUX()
-    struct ModuleInfo_ {
-        const char* name;
-        void* base = nullptr;
-        std::size_t size = 0;
-    } moduleInfo;
-
-    moduleInfo.name = name;
-
     const linux_platform::SharedObject so{ linux_platform::DynamicLibraryWrapper{}, name };
-
-    const auto linkMap = so.getView().getLinkMap();
-    if (linkMap) {
-        if (const auto fd = open(linkMap->l_name, O_RDONLY); fd >= 0) {
-            if (struct stat st; fstat(fd, &st) == 0) {
-                if (const auto map = mmap(nullptr, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0); map != MAP_FAILED) {
-                    const auto ehdr = (ElfW(Ehdr)*)map;
-                    const auto shdrs = (ElfW(Shdr)*)(std::uintptr_t(ehdr) + ehdr->e_shoff);
-                    const auto strTab = (const char*)(std::uintptr_t(ehdr) + shdrs[ehdr->e_shstrndx].sh_offset);
-
-                    for (auto i = 0; i < ehdr->e_shnum; ++i) {
-                        const auto shdr = (ElfW(Shdr)*)(std::uintptr_t(shdrs) + i * ehdr->e_shentsize);
-
-                        if (std::strcmp(strTab + shdr->sh_name, ".text") != 0)
-                            continue;
-
-                        moduleInfo.base = (void*)(linkMap->l_addr + shdr->sh_offset);
-                        moduleInfo.size = shdr->sh_size;
-                        munmap(map, st.st_size);
-                        close(fd);
-                        break;
-                    }
-                    munmap(map, st.st_size);
-                }
-            }
-            close(fd);
-        }
-    }
-    return { reinterpret_cast<const std::byte*>(moduleInfo.base), moduleInfo.size };
+    return linux_platform::getCodeSection(so.getView());
 #endif
 }
 
@@ -197,7 +162,7 @@ Memory::Memory(std::uintptr_t clientInterface, const RetSpoofGadgets& retSpoofGa
     money = findPattern(CLIENT_DLL, "\x84\xC0\x75\x0C\x5B");
     demoFileEndReached = findPattern(CLIENT_DLL, "\x8B\xC8\x85\xC9\x74\x1F\x80\x79\x10");
     plantedC4s = reinterpret_cast<decltype(plantedC4s)>(SafeAddress{ findPattern(CLIENT_DLL, "\x7E\x2C\x8B\x15") }.add(4).deref().get());
-    gameRules = reinterpret_cast<std::uintptr_t*>(SafeAddress{ findPattern(CLIENT_DLL, "\x8B\xEC\x8B\x0D????\x85\xC9\x74\x07") }.add(4).deref().get());
+    gameRules = reinterpret_cast<csgo::pod::Entity**>(SafeAddress{ findPattern(CLIENT_DLL, "\x8B\xEC\x8B\x0D????\x85\xC9\x74\x07") }.add(4).deref().get());
     registeredPanoramaEvents = reinterpret_cast<decltype(registeredPanoramaEvents)>(SafeAddress{ findPattern(CLIENT_DLL, "\xE8????\xA1????\xA8\x01\x75\x21") }.add(6).deref().add(-36).get());
     makePanoramaSymbolFn = reinterpret_cast<decltype(makePanoramaSymbolFn)>(SafeAddress{ findPattern(CLIENT_DLL, "\xE8????\x0F\xB7\x45\x0E\x8D\x4D\x0E") }.add(1).relativeToAbsolute().get());
     createEconItemSharedObject = reinterpret_cast<decltype(createEconItemSharedObject)>(SafeAddress{ findPattern(CLIENT_DLL, "\x55\x8B\xEC\x83\xEC\x1C\x8D\x45\xE4\xC7\x45") }.add(20).deref().get());
@@ -215,7 +180,7 @@ Memory::Memory(std::uintptr_t clientInterface, const RetSpoofGadgets& retSpoofGa
     setItemSessionPropertyValue = reinterpret_cast<decltype(setItemSessionPropertyValue)>(SafeAddress{ findPattern(CLIENT_DLL, "\xE8????\x8B\x4C\x24\x2C\x46") }.add(1).relativeToAbsolute().get());
     removeDynamicAttribute = findPattern(CLIENT_DLL, "\x55\x8B\xEC\x83\xEC\x08\x8B\xC1\x89\x45\xF8");
 
-    localPlayer.init(reinterpret_cast<std::uintptr_t*>(SafeAddress{ findPattern(CLIENT_DLL, "\xA1????\x89\x45\xBC\x85\xC0") }.add(1).deref().get()));
+    localPlayer.init(reinterpret_cast<csgo::pod::Entity**>(SafeAddress{ findPattern(CLIENT_DLL, "\xA1????\x89\x45\xBC\x85\xC0") }.add(1).deref().get()));
 
     keyValuesSystem = reinterpret_cast<KeyValuesSystem* (STDCALL_CONV*)()>(GetProcAddress(GetModuleHandleW(L"vstdlib"), "KeyValuesSystem"))();
     keyValuesAllocEngine = SafeAddress{ findPattern(ENGINE_DLL, "\xE8????\x83\xC4\x08\x84\xC0\x75\x10\xFF\x75\x0C") }.add(1).relativeToAbsolute().add(0x4A).get();
@@ -267,7 +232,7 @@ Memory::Memory(std::uintptr_t clientInterface, const RetSpoofGadgets& retSpoofGa
     equipWearable = reinterpret_cast<decltype(equipWearable)>(findPattern(CLIENT_DLL, "\x55\x48\x89\xE5\x41\x56\x41\x55\x41\x54\x49\x89\xF4\x53\x48\x89\xFB\x48\x83\xEC\x10\x48\x8B\x07"));
     setAbsOrigin = reinterpret_cast<decltype(setAbsOrigin)>(SafeAddress{ findPattern(CLIENT_DLL, "\xE8????\x49\x8B\x07\x31\xF6") }.add(1).relativeToAbsolute().get());
     plantedC4s = reinterpret_cast<decltype(plantedC4s)>(SafeAddress{ findPattern(CLIENT_DLL, "\x48\x8D\x3D????\x42\xC6\x44\x28") }.add(3).relativeToAbsolute().get());
-    gameRules = reinterpret_cast<std::uintptr_t*>(SafeAddress{ findPattern(CLIENT_DLL, "\x48\x8B\x1D????\x48\x8B\x3B\x48\x85\xFF\x74\x06") }.add(3).relativeToAbsolute().deref().get());
+    gameRules = reinterpret_cast<csgo::pod::Entity**>(SafeAddress{ findPattern(CLIENT_DLL, "\x48\x8B\x1D????\x48\x8B\x3B\x48\x85\xFF\x74\x06") }.add(3).relativeToAbsolute().deref().get());
     dispatchSound = reinterpret_cast<int*>(SafeAddress{ findPattern(ENGINE_DLL, "\x74\x10\xE8????\x48\x8B\x35") }.add(3).get());
     predictionRandomSeed = reinterpret_cast<int*>(SafeAddress{ findPattern(CLIENT_DLL, "\x41\x8D\x56\xFF\x31\xC9") }.add(-14).relativeToAbsolute().deref().get());
     registeredPanoramaEvents = reinterpret_cast<decltype(registeredPanoramaEvents)>(SafeAddress{ findPattern(CLIENT_DLL, "\xE8????\x8B\x50\x10\x49\x89\xC6") }.add(1).relativeToAbsolute().add(12).relativeToAbsolute().get());
@@ -291,6 +256,6 @@ Memory::Memory(std::uintptr_t clientInterface, const RetSpoofGadgets& retSpoofGa
 
     removeDynamicAttribute = SafeAddress{ findPattern(CLIENT_DLL, "\xE8????\x80\x3D?????\x75\x14\x48\x8D\x3D????\xE8????\x85\xC0\x0F\x85????\xC7\x45") }.add(1).relativeToAbsolute().get();
 
-    localPlayer.init(reinterpret_cast<std::uintptr_t*>(SafeAddress{ findPattern(CLIENT_DLL, "\x83\xFF\xFF\x48\x8B\x05") }.add(6).relativeToAbsolute().get()));
+    localPlayer.init(reinterpret_cast<csgo::pod::Entity**>(SafeAddress{ findPattern(CLIENT_DLL, "\x83\xFF\xFF\x48\x8B\x05") }.add(6).relativeToAbsolute().get()));
 #endif
 }
